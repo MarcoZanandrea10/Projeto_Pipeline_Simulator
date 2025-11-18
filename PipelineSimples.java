@@ -8,13 +8,12 @@ public class PipelineSimples {
         // String arquivoEntrada = "instrucoes.txt";
         String arquivoEntrada = "fib_rec_hexadecimal.txt";
 
-        // Lê todas as instruções do arquivo
+        // le todas as instruções do arquivo
         List<String> instrucoes = Files.readAllLines(Paths.get(arquivoEntrada));
 
         System.out.println("SIMULADOR DE PIPELINE");
         System.out.println("Instruções originais: " + instrucoes.size() + "\n");
 
-        // Simula os dois modos
         simularPipeline(instrucoes, false); // sem forwarding
         simularPipeline(instrucoes, true); // com forwarding
     }
@@ -23,27 +22,74 @@ public class PipelineSimples {
         List<String> saida = new ArrayList<>(); // linhas de saída com endereços
         Map<Integer, String> mapa = new LinkedHashMap<>(); // mantém a ordem das instruções com endereços
 
-        // Contadores de conflitos e NOPs
+        // contadores de conflitos e NOPs
         int conflitosDados = 0;
         int conflitosControle = 0;
         int nopsInseridos = 0;
-        int endereco = 0; // endereço inicial
-        String regDestinoAnterior = ""; // registrador destino da instrução anterior
+        int endereco = 0;
+        String regDestinoAnterior = "";
 
-        // Percorre todas as instruções
+        // percorre todas as instruções
         for (String instrucao : instrucoes) {
             instrucao = instrucao.trim();
-            if (instrucao.isEmpty())
-                continue;
+            if (instrucao.isEmpty()) continue;
+                
+            // verifica se é instrução em hexadecimal
+            boolean Hex = instrucao.matches("^[0-9a-fA-F]{8}$");
+
+            String rd = "";
+            String rs = "";
+            String rt = "";
+            boolean instrucaoControle = false;
+
+            // conflitos de controle
+            if (Hex) {
+                int inst = Integer.parseUnsignedInt(instrucao, 16);
+                int opcode = inst & 0x7F;
+
+                rd = "R" + ((inst >>> 7) & 0x1F);
+                rs = "R" + ((inst >>> 15) & 0x1F);
+                rt = "R" + ((inst >>> 20) & 0x1F);
+
+                // verifica se é instrução de desvio
+                if (opcode == 0x63 || opcode == 0x6F || opcode == 0x67) {
+                    instrucaoControle = true;
+                }
+
+            } else {
+                String semVirgulas = instrucao.replace(",", "");
+                String[] partes = semVirgulas.split("\\s+");
+
+                // obtém os registradores conforme o formato da instrução
+                if (partes.length >= 2)
+                    rd = partes[1];
+                if (partes.length >= 3)
+                    rs = partes[2];
+                if (partes.length >= 4)
+                    rt = partes[3];
+
+                if (instrucao.startsWith("BEQ") || instrucao.startsWith("BNE") || instrucao.startsWith("J")) {
+                    instrucaoControle = true;
+                }
+            }
+
+            // trata instruções de dados
+            if (!regDestinoAnterior.equals("") && (rs.equals(regDestinoAnterior) || rt.equals(regDestinoAnterior))) {
+                conflitosDados++;
+
+                // add os NOPs
+                for (int i = 0; i < 3; i++) {
+                    mapa.put(endereco, "NOP");
+                    endereco += 4;
+                    nopsInseridos++;
+                }
+            }
 
             mapa.put(endereco, instrucao);
             endereco += 4;
 
-            // arrumar a deteccao de conflitos de controle e arrumar o NOPs (add sempre 3)
-            // ARRUMAR OS NOPS
-
-            // Detecta conflito de controle
-            if (instrucao.startsWith("BEQ") || instrucao.startsWith("BNE") || instrucao.startsWith("J")) {
+            // trata instruções de controle
+            if (instrucaoControle) {
                 conflitosControle++;
 
                 for (int i = 0; i < 3; i++) {
@@ -53,34 +99,12 @@ public class PipelineSimples {
                 }
 
                 regDestinoAnterior = "";
-                continue;
-            }
-
-            // Detecta conflito de dados
-            String semVirgulas = instrucao.replace(",", "");
-            String[] partes = semVirgulas.split("\\s+");
-
-            if (partes.length >= 3) {
-                String rd = partes[1]; // destino desta instrução
-                String rs = partes[2]; // fonte 1
-                String rt = partes.length >= 4 ? partes[3] : "";
-
-                if (!regDestinoAnterior.isEmpty() && (rs.equals(regDestinoAnterior) || rt.equals(regDestinoAnterior))) {
-                    conflitosDados++;
-
-                    for (int i = 0; i < 3; i++) {
-                        mapa.put(endereco, "NOP");
-                        endereco += 4;
-                        nopsInseridos++;
-                    }
-                }
-
+            } else {
                 regDestinoAnterior = rd;
             }
-
         }
 
-        // Monta resultado com endereços
+        // monta resultado com endereços
         for (Map.Entry<Integer, String> e : mapa.entrySet()) {
             String endHex = String.format("0x%04X", e.getKey());
             saida.add(endHex + "  " + e.getValue());
